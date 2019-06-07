@@ -12,10 +12,17 @@ const char* typeNames[] = {"OGON", "GLOWA", "TULOW", "ZLECENIEDOWCA"};
 
 int rank, size, lamportTimestamp = 0;
 
-void messanger(){
+int* ogonTeamQueue, tulowTeamQueue, glowaTeamQueue;
+
+void messangerTulow(){
     MPI_Status status;
     int data = 0;
     MPI_Recv(&data, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+    if (status.MPI_TAG == NEW_TASK) {
+
+    }
+
     printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
 }
 
@@ -56,6 +63,19 @@ void initThreadSystem(int threadSystem, int * processRank, int * size) {
     MPI_Comm_size(MPI_COMM_WORLD, size);
 }
 
+void zleceniodawca() {
+    sleep(2);
+    totalBroadcast(TULOW, NEW_TASK);
+}
+
+
+void tulow() {
+    pthread_t workerThread;
+    pthread_create(&workerThread, NULL, workerMainFunc, 0);
+    messangerTulow();
+    pthread_join(workerThread, NULL);
+}
+
 int main(int argc, char **argv) {
     int providedThreadSystem = 0;
     MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &providedThreadSystem);
@@ -65,20 +85,24 @@ int main(int argc, char **argv) {
     enum type profession = assignProfession(rank);
     printf("[PROCES %d - MAIN] type %s \n", rank, typeNames[profession]);
 
+    switch (profession) {
+        case ZLECENIEDOWCA:
+            zleceniodawca();
+            break;
 
-    if (rank == 0) {
-        sleep(5);
-        totalBroadcast(OGON, NEW_TASK);
-    } else {
-        if(profession==TULOW){
-            pthread_t workerThread;
-            pthread_create(&workerThread, NULL, workerMainFunc, 0);
-            messanger();
-            pthread_join(workerThread, NULL);
-        }
+        case TULOW:
+            tulow();
+            break;
 
+        case GLOWA:
+            break;
+
+        case OGON:
+            break;
+
+        default:
+            break;
     }
-
 
     printf("[PROCES %d - MAIN] koniec \n", rank);
     MPI_Finalize();
