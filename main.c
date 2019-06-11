@@ -14,7 +14,7 @@ enum type {OGON, GLOWA, TULOW, ZLECENIEDOWCA};
 
 const char* typeNames[] = {"OGON", "GLOWA", "TULOW", "ZLECENIEDOWCA"};
 
-int rank, size, lamportTS = 0;
+int rank, size, lamportTS = 0, *otherTS;
 
 typedef struct QueueElement {
     int pID;
@@ -163,6 +163,8 @@ void initThreadSystem(int threadSystem, int * processRank, int * size) {
 }
 
 void professionInit(){
+    otherTS = malloc(sizeof(int) * size);
+    for (int i = 0; i < size; i++) otherTS = 0;
     glowaTeamQueue = (QueueElementType *)malloc(sizeof(QueueElementType));
     ogonTeamQueue = (QueueElementType *)malloc(sizeof(QueueElementType));
     tulowTeamQueue = (QueueElementType *)malloc(sizeof(QueueElementType));
