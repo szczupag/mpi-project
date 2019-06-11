@@ -59,10 +59,25 @@ int getReadyElementsFromQueue(QueueElementType **head, enum type profession){
 
 void removeFirstNodes(QueueElementType **head, int count){
     for(int i = 0; i<count; i++){
+        printf("[PROCES - %d] proces %d ma drużynę \n",rank, (*head)->pID);
         QueueElementType *tmp = (*head);
         (*head)=(*head)->next;
         free(tmp);
     }
+}
+
+void checkForTeams(){
+    int ileOgonow = getReadyElementsFromQueue(&ogonTeamQueue, OGON);
+    int ileGlow = getReadyElementsFromQueue(&glowaTeamQueue, GLOWA);
+    int ileTulowi = getReadyElementsFromQueue(&tulowTeamQueue, TULOW);
+
+    int count = ileOgonow;
+    if(ileGlow<count) count = ileGlow;
+    if(ileTulowi<count) count = ileTulowi;
+
+    removeFirstNodes(&ogonTeamQueue,count);
+    removeFirstNodes(&glowaTeamQueue,count);
+    removeFirstNodes(&tulowTeamQueue,count);
 }
 
 void insertAfter(QueueElementType *current, int processID, int processLamport){
@@ -93,7 +108,6 @@ void insertToQueue(QueueElementType **head, int processID, int processLamport) {
         insertAfter(current, processID, processLamport);
     }
 }
-
 
 void showQueue(QueueElementType *head, int type) {
     printf("[PROCES %d - QUEUE] %s: ", rank, typeNames[type]);
@@ -171,6 +185,7 @@ void onReadyForNewTask(enum type senderType, MPI_Status status, int data){
         default:
             break;
     }
+    checkForTeams();
 }
 
 void onEnd(){
@@ -388,30 +403,30 @@ int main(int argc, char **argv) {
     initThreadSystem(providedThreadSystem, &rank, &size);
 
     printf("[SIZE] %d \n", size);
-    test();
-//    enum type profession = getProfession(rank);
-//    printf("[PROCES %d - MAIN] type %s \n", rank, typeNames[profession]);
-//
-//    switch(profession){
-//        case ZLECENIEDOWCA:
-//            zleceniodawca();
-//            break;
-//
-//        case GLOWA:
-//            glowa();
-//            break;
-//
-//        case TULOW:
-//            tulow();
-//            break;
-//
-//        case OGON:
-//            ogon();
-//            break;
-//
-//        default:
-//            break;
-//    }
+//    test();
+    enum type profession = getProfession(rank);
+    printf("[PROCES %d - MAIN] type %s \n", rank, typeNames[profession]);
+
+    switch(profession){
+        case ZLECENIEDOWCA:
+            zleceniodawca();
+            break;
+
+        case GLOWA:
+            glowa();
+            break;
+
+        case TULOW:
+            tulow();
+            break;
+
+        case OGON:
+            ogon();
+            break;
+
+        default:
+            break;
+    }
 
     printf("[PROCES %d - MAIN] koniec Lamport: %d\n", rank, lamportTS);
     MPI_Finalize();
