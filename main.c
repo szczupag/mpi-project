@@ -4,17 +4,21 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>
+#include <ctype.h>
 
 #define NEW_TASK 100
 #define READY_FOR_NEW_TASK 200
+#define END 0
 
 pthread_mutex_t lamportLock, lamportArrayLock;
 
 enum type {OGON, GLOWA, TULOW, ZLECENIEDOWCA};
-
 const char* typeNames[] = {"OGON", "GLOWA", "TULOW", "ZLECENIEDOWCA"};
 
+typedef enum {TRUE = 1, FALSE = 0} bool;
+
 int rank, size, lamportTS = 0, *otherTS;
+bool end = FALSE;
 
 typedef struct QueueElement {
     int pID;
@@ -68,10 +72,11 @@ void showQueue(QueueElementType *head, int type) {
     printf("\n");
 }
 
-void lamportIncreaseAfterRecv(int senderRank){
+void lamportIncreaseAfterRecv(int senderLTS, int senderRank){
     pthread_mutex_lock(&lamportLock);
-    if(senderRank>lamportTS){
-        lamportTS = senderRank + 1;
+    otherTS[senderRank] = senderLTS;
+    if(senderLTS>lamportTS){
+        lamportTS = senderLTS + 1;
     } else {
         lamportTS += 1;
     }
@@ -115,29 +120,46 @@ enum type getProfession(int processRank) {
     }
 }
 
-void messanger(){
+void onReadyForNewTask(enum type senderType, MPI_Status status, int data){
+    switch (senderType) {
+        case GLOWA:
+            insertToQueue(&glowaTeamQueue, status.MPI_SOURCE, data);
+            break;
+        case OGON:
+            insertToQueue(&ogonTeamQueue, status.MPI_SOURCE, data);
+            break;
+        case TULOW:
+            insertToQueue(&tulowTeamQueue, status.MPI_SOURCE, data);
+            break;
+        default:
+            break;
+    }
+}
 
-    for(int i = 0; i<size-1; i+=1){
+void onEnd(){
+    end = TRUE;
+}
+
+void messangerGlowy(){
+
+    while(end == FALSE){
+        printf("[PROCES %d - MESSANGER] loop \n", rank);
         MPI_Status status;
         int data;
-        MPI_Recv(&data, 1, MPI_INT, MPI_ANY_SOURCE, READY_FOR_NEW_TASK, MPI_COMM_WORLD, &status);
-        lamportIncreaseAfterRecv(data);
+        MPI_Recv(&data, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        lamportIncreaseAfterRecv(data, status.MPI_SOURCE);
         printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
-        switch (senderType) {
-            case GLOWA:
-                insertToQueue(&glowaTeamQueue, status.MPI_SOURCE, data);
+        switch(status.MPI_TAG){
+            case READY_FOR_NEW_TASK:
+                onReadyForNewTask(senderType,status,data);
                 break;
-            case OGON:
-                insertToQueue(&ogonTeamQueue, status.MPI_SOURCE, data);
-                break;
-            case TULOW:
-                insertToQueue(&tulowTeamQueue, status.MPI_SOURCE, data);
+            case END:
+                onEnd();
                 break;
             default:
                 break;
         }
-
     }
 
     showQueue(glowaTeamQueue, GLOWA);
@@ -146,7 +168,73 @@ void messanger(){
 
 }
 
-void *workerMainFunc(void *ptr) {
+void messangerTulowia(){
+
+    while(end == FALSE){
+        printf("[PROCES %d - MESSANGER] loop \n", rank);
+        MPI_Status status;
+        int data;
+        MPI_Recv(&data, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        lamportIncreaseAfterRecv(data, status.MPI_SOURCE);
+        printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
+        enum type senderType = getProfession(status.MPI_SOURCE);
+        switch(status.MPI_TAG){
+            case READY_FOR_NEW_TASK:
+                onReadyForNewTask(senderType,status,data);
+                break;
+            case END:
+                onEnd();
+                break;
+            default:
+                break;
+        }
+    }
+
+    showQueue(glowaTeamQueue, GLOWA);
+    showQueue(ogonTeamQueue, OGON);
+    showQueue(tulowTeamQueue, TULOW);
+
+}
+
+void messangerOgona(){
+
+    while(end == FALSE){
+        printf("[PROCES %d - MESSANGER] loop \n", rank);
+        MPI_Status status;
+        int data;
+        MPI_Recv(&data, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        lamportIncreaseAfterRecv(data, status.MPI_SOURCE);
+        printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
+        enum type senderType = getProfession(status.MPI_SOURCE);
+        switch(status.MPI_TAG){
+            case READY_FOR_NEW_TASK:
+                onReadyForNewTask(senderType,status,data);
+                break;
+            case END:
+                onEnd();
+                break;
+            default:
+                break;
+        }
+    }
+
+    showQueue(glowaTeamQueue, GLOWA);
+    showQueue(ogonTeamQueue, OGON);
+    showQueue(tulowTeamQueue, TULOW);
+
+}
+
+void *workerGlowy(void *ptr) {
+    professionalistsBroadcast(READY_FOR_NEW_TASK);
+    printf("[PROCES %d - WORKERTHREAD] start \n", rank);
+}
+
+void *workerTulowia(void *ptr) {
+    professionalistsBroadcast(READY_FOR_NEW_TASK);
+    printf("[PROCES %d - WORKERTHREAD] start \n", rank);
+}
+
+void *workerOgona(void *ptr) {
     professionalistsBroadcast(READY_FOR_NEW_TASK);
     printf("[PROCES %d - WORKERTHREAD] start \n", rank);
 }
@@ -164,7 +252,7 @@ void initThreadSystem(int threadSystem, int * processRank, int * size) {
 
 void professionInit(){
     otherTS = malloc(sizeof(int) * size);
-    for (int i = 0; i < size; i++) otherTS = 0;
+    for (int i = 0; i < size; i++) otherTS[i] = 0;
     glowaTeamQueue = (QueueElementType *)malloc(sizeof(QueueElementType));
     ogonTeamQueue = (QueueElementType *)malloc(sizeof(QueueElementType));
     tulowTeamQueue = (QueueElementType *)malloc(sizeof(QueueElementType));
@@ -187,8 +275,8 @@ void glowa() {
     professionInit();
 
     pthread_t workerThread;
-    pthread_create(&workerThread, NULL, workerMainFunc, 0);
-    messanger();
+    pthread_create(&workerThread, NULL, workerGlowy, 0);
+    messangerGlowy();
     pthread_join(workerThread, NULL);
 
     professionEnd();
@@ -198,8 +286,8 @@ void tulow(){
     professionInit();
 
     pthread_t workerThread;
-    pthread_create(&workerThread, NULL, workerMainFunc, 0);
-    messanger();
+    pthread_create(&workerThread, NULL, workerTulowia, 0);
+    messangerTulowia();
     pthread_join(workerThread, NULL);
 
     professionEnd();
@@ -209,8 +297,8 @@ void ogon(){
     professionInit();
 
     pthread_t workerThread;
-    pthread_create(&workerThread, NULL, workerMainFunc, 0);
-    messanger();
+    pthread_create(&workerThread, NULL, workerOgona, 0);
+    messangerOgona();
     pthread_join(workerThread, NULL);
 
     professionEnd();
