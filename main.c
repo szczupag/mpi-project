@@ -38,16 +38,12 @@ void insertToQueue(QueueElementType **head, int processID, int processLamport) {
         (*head)->pID = processID;
         (*head)->pLamport = processLamport;
         (*head)->next = NULL;
-    } else if((*head)->next==NULL){
-        if((*head)->pLamport< processLamport || ((*head)->pLamport== processLamport && (*head)->pID<processID) ){
-            insertAfter(*head,processID,processLamport);
-        } else {
+    } else if( (*head)->pLamport> processLamport || ((*head)->pLamport== processLamport && (*head)->pID>processID) ){
             QueueElementType *new = (QueueElementType *)malloc(sizeof(QueueElementType));
             new->pLamport= processLamport;
             new->pID = processID;
             new->next = *head;
             (*head) = new;
-        }
     } else {
         QueueElementType *current=*head;
         while (current->next != NULL && ( current->next->pLamport < processLamport || ( current->next->pLamport == processLamport && current->next->pID < processID) ) ) {
@@ -96,10 +92,12 @@ void professionalistsBroadcast(int task){
 }
 
 void singleProfessionBroadcast(enum type sendTo, int task) {
+    pthread_mutex_lock(&lamportLock);
     lamportIncreaseBeforeSend();
     for (int processId = sendTo + 1; processId < size; processId += 3) {
         MPI_Send(&lamportTS, 1, MPI_INT, processId, task, MPI_COMM_WORLD);
     }
+    pthread_mutex_unlock(&lamportLock);
 }
 
 enum type getProfession(int processRank) {
@@ -126,7 +124,7 @@ void messanger(){
         lamportIncreaseAfterRecv(data);
         printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
-        switch (senderType % 3) {
+        switch (senderType) {
             case GLOWA:
                 insertToQueue(&glowaTeamQueue, status.MPI_SOURCE, data);
                 break;
@@ -135,6 +133,8 @@ void messanger(){
                 break;
             case TULOW:
                 insertToQueue(&tulowTeamQueue, status.MPI_SOURCE, data);
+                break;
+            default:
                 break;
         }
 
