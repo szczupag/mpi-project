@@ -10,6 +10,8 @@
 #define NEW_TASK 100
 #define READY_TO_JOIN_TEAM 200
 #define END 0
+#define REQUEST_DESK 300
+#define REPLY_DESK 400
 
 pthread_mutex_t lamportLock, lamportArrayLock;
 
@@ -21,6 +23,8 @@ pthread_mutex_t skeletonMutex, resurrectOgonMutex, acquireSkeletonMutex;
 
 //mutexy glowy
 pthread_mutex_t glowaFinishResurrectingMutex, resurrectGlowaMutex;
+
+int glowaTeamId, ogonTeamId;
 
 enum type {
     OGON, GLOWA, TULOW, ZLECENIEDOWCA
@@ -42,6 +46,17 @@ typedef struct QueueElement {
 
 QueueElementType *glowaTeamQueue, *ogonTeamQueue, *tulowTeamQueue;
 
+
+int getProcessOnQueueHead(QueueElementType **head) {
+    QueueElementType *current = *head;
+    if (current != NULL) {
+        return current->pID;
+    } else {
+        printf("[PROCESS %d] ERROR. Getting head from empty queue!", rank);
+        return -1;
+    }
+}
+
 bool isInQueue(QueueElementType **head, int processID) {
     QueueElementType *current = *head;
     bool isIn = FALSE;
@@ -53,6 +68,20 @@ bool isInQueue(QueueElementType **head, int processID) {
         current = current->next;
     }
     return isIn;
+}
+
+int getPosInQueue(QueueElementType **head, int processID) {
+    QueueElementType *current = *head;
+    int position = -1, counter = 0;
+    while (current != NULL) {
+        counter += 1;
+        if (current->pID == processID) {
+            position = counter;
+            break;
+        }
+        current = current->next;
+    }
+    return position;
 }
 
 int getReadyElementsFromQueue(QueueElementType **head, enum type profession) {
@@ -81,17 +110,33 @@ void removeFirstNodes(QueueElementType **head, int count) {
 }
 
 void checkForTeams() {
+    //ilu specjalistow z kazdej profesji NA PEWNO ma druzyne
     int ileOgonow = getReadyElementsFromQueue(&ogonTeamQueue, OGON);
     int ileGlow = getReadyElementsFromQueue(&glowaTeamQueue, GLOWA);
     int ileTulowi = getReadyElementsFromQueue(&tulowTeamQueue, TULOW);
 
-    int count = ileOgonow;
-    if (ileGlow < count) count = ileGlow;
-    if (ileTulowi < count) count = ileTulowi;
+    //jezeli jakas druzyna jest uformowana
+    if (ileOgonow >= 1 && ileGlow >=1 && ileTulowi >= 1) {
 
-    removeFirstNodes(&ogonTeamQueue, count);
-    removeFirstNodes(&glowaTeamQueue, count);
-    removeFirstNodes(&tulowTeamQueue, count);
+        int myPositionInQueue = getPosInQueue(&tulowTeamQueue, rank);
+
+        //jestem pierwszy w kolejce
+        if (myPositionInQueue == 1) {
+            //zapisz druzyne
+            ogonTeamId = getProcessOnQueueHead(&ogonTeamQueue);
+            glowaTeamId = getProcessOnQueueHead(&glowaTeamQueue);
+            printf("[PROCES %d] Jestem 1 w kolejce. Moja drużyna: Tulow - %d, Ogon - %d, Glowa - %d\n", rank, rank, ogonTeamId, glowaTeamId);
+
+            //pozwol ubiegac sie o biurko
+            pthread_mutex_unlock(&acquireDeskMutex);
+        } else {
+            printf("[PROCES %d] Jestem %d w kolejce. Nie rozpoczynam ubiegania się o biurko\n", rank, myPositionInQueue);
+        }
+
+        removeFirstNodes(&ogonTeamQueue, 1);
+        removeFirstNodes(&glowaTeamQueue, 1);
+        removeFirstNodes(&tulowTeamQueue, 1);
+    }
 }
 
 void insertAfter(QueueElementType *current, int processID, int processLamport) {
@@ -188,6 +233,7 @@ enum type getProfession(int processRank) {
 }
 
 void onReadyForNewTask(enum type senderType, MPI_Status status, int data) {
+    //dodaj procesy chętne do uformowania drużyny do kolejek drużyn
     switch (senderType) {
         case GLOWA:
             insertToQueue(&glowaTeamQueue, status.MPI_SOURCE, data);
@@ -204,6 +250,7 @@ void onReadyForNewTask(enum type senderType, MPI_Status status, int data) {
 }
 
 void onNewTask() {
+    //jeżeli masz drużynę i możesz wejść do sekcji krtycznej, zacznij ubiegać się o szkielet
     checkForTeams();
 }
 
@@ -214,7 +261,6 @@ void onEnd() {
 void messangerGlowy() {
 
     while (end == FALSE) {
-        printf("[PROCES %d - MESSANGER] loop \n", rank);
         MPI_Status status;
         int data;
         MPI_Recv(&data, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
@@ -244,7 +290,6 @@ void messangerGlowy() {
 void messangerTulowia() {
 
     while (end == FALSE) {
-        printf("[PROCES %d - MESSANGER] loop \n", rank);
         MPI_Status status;
         int senderLts;
         MPI_Recv(&senderLts, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
@@ -336,6 +381,7 @@ void *workerTulowia(void *ptr) {
 
         //zacznij ubiegać się o biurko kiedy masz drużynę
         pthread_mutex_lock(&acquireDeskMutex);
+        printf("[PROCES %d - WORKERTHREAD] Rozpoczynam ubieganie się o biurko\n", rank);
         //TODO: REQUEST dostępu do biurka do pozostałych tułowi
         pthread_mutex_unlock(&acquireDeskMutex);
 
@@ -435,11 +481,13 @@ void professionEnd() {
 
 void zleceniodawca() {
     //w losowych odstępuj generuj zlecenia i wysyłaj je do wszystkich tułowi
-    sleep(2);
+    sleep(5);
+    singleProfessionBroadcast(TULOW, NEW_TASK);
+    sleep(5);
     singleProfessionBroadcast(TULOW, NEW_TASK);
 }
 
-initGlowaMutexes() {
+void initGlowaMutexes() {
     pthread_mutex_init(&glowaFinishResurrectingMutex, NULL);
     pthread_mutex_init(&resurrectGlowaMutex, NULL);
 
@@ -571,7 +619,6 @@ int main(int argc, char **argv) {
 
     initThreadSystem(providedThreadSystem, &rank, &size);
 
-    printf("[SIZE] %d \n", size);
 //    test();
 
     //nadaj procesowi profesję
