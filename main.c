@@ -31,7 +31,7 @@ QueueElementType *glowaTeamQueue, *ogonTeamQueue, *tulowTeamQueue;
 bool isInQueue(QueueElementType **head, int processID){
     QueueElementType *current=*head;
     bool isIn = FALSE;
-    while (current->next != NULL){
+    while (current != NULL){
         if(current->pID == processID) {
             isIn = TRUE;
             break;
@@ -44,17 +44,25 @@ bool isInQueue(QueueElementType **head, int processID){
 int getReadyElementsFromQueue(QueueElementType **head, enum type profession){
     int min = 100, canEnter = 0;
     for(int i = profession+1; i < size; i+=3 ) {
-        printf("%d sprawdzam i: %d\n", rank, i);
         if (otherTS[i] < min && isInQueue(head, i) == FALSE) {
             min = otherTS[i];
         }
     }
+
     QueueElementType *current=*head;
-    while (current->next != NULL && current->pLamport < min){
+    while (current != NULL && current->pLamport <= min){
         canEnter += 1;
-        current=current->next;
+        current = current->next;
     }
     return canEnter;
+}
+
+void removeFirstNodes(QueueElementType **head, int count){
+    for(int i = 0; i<count; i++){
+        QueueElementType *tmp = (*head);
+        (*head)=(*head)->next;
+        free(tmp);
+    }
 }
 
 void insertAfter(QueueElementType *current, int processID, int processLamport){
@@ -194,7 +202,6 @@ void messangerGlowy(){
     showQueue(glowaTeamQueue, GLOWA);
     showQueue(ogonTeamQueue, OGON);
     showQueue(tulowTeamQueue, TULOW);
-
 }
 
 void messangerTulowia(){
@@ -222,7 +229,6 @@ void messangerTulowia(){
     showQueue(glowaTeamQueue, GLOWA);
     showQueue(ogonTeamQueue, OGON);
     showQueue(tulowTeamQueue, TULOW);
-
 }
 
 void messangerOgona(){
@@ -250,7 +256,6 @@ void messangerOgona(){
     showQueue(glowaTeamQueue, GLOWA);
     showQueue(ogonTeamQueue, OGON);
     showQueue(tulowTeamQueue, TULOW);
-
 }
 
 void *workerGlowy(void *ptr) {
@@ -335,21 +340,45 @@ void ogon(){
 
 void test(){
     QueueElementType *teamQueue = (QueueElementType *)malloc(sizeof(QueueElementType));
+    QueueElementType *teamQueue2 = (QueueElementType *)malloc(sizeof(QueueElementType));
     teamQueue = NULL;
+    teamQueue2 = NULL;
+
     insertToQueue(&teamQueue, 1, 1);
-    insertToQueue(&teamQueue, 4, 4);
+    insertToQueue(&teamQueue, 4, 2);
+
+    insertToQueue(&teamQueue2, 2, 1);
+    insertToQueue(&teamQueue2, 5, 2);
+    insertToQueue(&teamQueue2, 8, 3);
 
     otherTS = malloc(sizeof(int) * size);
     for (int i = 0; i < size; i++) otherTS[i] = 0;
     otherTS[1] = 4;
+    otherTS[2] = 1;
     otherTS[4] = 7;
+    otherTS[5] = 1;
     otherTS[7] = 3;
-    otherTS[10] = 2;
+    otherTS[8] = 1;
+    otherTS[10] = 5;
+    otherTS[11] = 4;
     otherTS[13] = 6;
+    otherTS[14] = 6;
 
     int ile = getReadyElementsFromQueue(&teamQueue, OGON);
+    int ile2 = getReadyElementsFromQueue(&teamQueue2, GLOWA);
 
-    printf("[TEST] ile: %d \n",ile);
+    int count = ile;
+    if(ile2<ile) count = ile2;
+
+    removeFirstNodes(&teamQueue,count);
+    removeFirstNodes(&teamQueue2,count);
+
+    printf("[TEST] ile: %d %d \n",ile, ile2);
+
+    printf("[PO USUNIECIU]\n");
+
+    showQueue(teamQueue, OGON);
+    showQueue(teamQueue2, GLOWA);
 }
 
 int main(int argc, char **argv) {
