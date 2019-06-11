@@ -14,7 +14,13 @@
 pthread_mutex_t lamportLock, lamportArrayLock;
 
 //mutexy tułowia
-pthread_mutex_t paperWorkMutex, resurectTulowMutex;
+pthread_mutex_t paperWorkMutex, resurrectTulowMutex, tulowFinishResurrectingMutex, acquireDeskMutex;
+
+//mutexy ogona
+pthread_mutex_t skeletonMutex, resurrectOgonMutex, acquireSkeletonMutex;
+
+//mutexy glowy
+pthread_mutex_t glowaFinishResurrectingMutex, resurrectGlowaMutex;
 
 enum type {
     OGON, GLOWA, TULOW, ZLECENIEDOWCA
@@ -240,17 +246,17 @@ void messangerTulowia() {
     while (end == FALSE) {
         printf("[PROCES %d - MESSANGER] loop \n", rank);
         MPI_Status status;
-        int data;
-        MPI_Recv(&data, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        lamportIncreaseAfterRecv(data, status.MPI_SOURCE);
-        printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
+        int senderLts;
+        MPI_Recv(&senderLts, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        lamportIncreaseAfterRecv(senderLts, status.MPI_SOURCE);
+        printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, senderLts, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
         switch (status.MPI_TAG) {
             case NEW_TASK:
                 onNewTask();
                 break;
             case READY_TO_JOIN_TEAM:
-                onReadyForNewTask(senderType, status, data);
+                onReadyForNewTask(senderType, status, senderLts);
                 break;
             case END:
                 onEnd();
@@ -268,19 +274,18 @@ void messangerTulowia() {
 void messangerOgona() {
 
     while (end == FALSE) {
-        printf("[PROCES %d - MESSANGER] loop \n", rank);
         MPI_Status status;
-        int data;
-        MPI_Recv(&data, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        lamportIncreaseAfterRecv(data, status.MPI_SOURCE);
-        printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
+        int senderLts;
+        MPI_Recv(&senderLts, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        lamportIncreaseAfterRecv(senderLts, status.MPI_SOURCE);
+        printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, senderLts, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
         switch (status.MPI_TAG) {
             case NEW_TASK:
                 onNewTask();
                 break;
             case READY_TO_JOIN_TEAM:
-                onReadyForNewTask(senderType, status, data);
+                onReadyForNewTask(senderType, status, senderLts);
                 break;
             case END:
                 onEnd();
@@ -296,18 +301,45 @@ void messangerOgona() {
 }
 
 void *workerGlowy(void *ptr) {
-    allProfessionsBroadcast(READY_TO_JOIN_TEAM);
     printf("[PROCES %d - WORKERTHREAD] start \n", rank);
+
+    while (end == FALSE) {
+        //ogłoś, że jesteś gotowy dołączyć do drużyny
+        allProfessionsBroadcast(READY_TO_JOIN_TEAM);
+
+        //zacznij wskrzeszanie gdy dostaniesz informacje od ogona
+        pthread_mutex_lock(&resurrectGlowaMutex);
+
+        //wskrzeszanie i czekanko
+
+        pthread_mutex_unlock(&resurrectGlowaMutex);
+
+        //TODO: poinformuj tułów, żeby zaczął wskrzeszać
+
+        //poczkaj na informacje od ogona o zakonczeniu wskrzeszania
+        pthread_mutex_lock(&glowaFinishResurrectingMutex);
+
+        //TODO: podbić licznik wskrzeszeń
+
+        pthread_mutex_unlock(&glowaFinishResurrectingMutex);
+
+        //TODO: zacząć ubiegać się o drużynę
+    }
 }
 
 void *workerTulowia(void *ptr) {
     printf("[PROCES %d - WORKERTHREAD] start \n", rank);
 
     while (end == FALSE) {
-        //ogłoś, że jesteś gotowy dołączyć do drużyny drużynę
+        //ogłoś, że jesteś gotowy dołączyć do drużyny
         allProfessionsBroadcast(READY_TO_JOIN_TEAM);
 
-        //zacznij robotę papierkową kiedy gotowy
+        //zacznij ubiegać się o biurko kiedy masz drużynę
+        pthread_mutex_lock(&acquireDeskMutex);
+        //TODO: REQUEST dostępu do biurka do pozostałych tułowi
+        pthread_mutex_unlock(&acquireDeskMutex);
+
+        //zacznij robotę papierkową kiedy będziesz miał biurko
         pthread_mutex_lock(&paperWorkMutex);
 
         //robota papierkowa i spanko
@@ -315,22 +347,62 @@ void *workerTulowia(void *ptr) {
         //koniec roboty papierkowej
         pthread_mutex_unlock(&paperWorkMutex);
 
-        //zacznij wskrzeszanie ogona kiedy gotowy
-        pthread_mutex_lock(&resurectTulowMutex);
+        //TODO: REPLY do pozostalych tułowi ubierających się o biurko
+        //TODO: poinformować ogon, że ma zacząć ubiegać się o szkielet.
+
+        //zacznij wskrzeszanie tulowia kiedy głowa da znać
+        pthread_mutex_lock(&resurrectTulowMutex);
 
         //wskrzeszanie i spanko
 
         //koniec wskrzeszania
-        pthread_mutex_unlock(&resurectTulowMutex);
+        pthread_mutex_unlock(&resurrectTulowMutex);
+        //TODO: poinformować ogon, że ma rozpocząć wskrzeszanie swojej części
+
+        //skoncz wskrzeszanie gdy ogon da znac
+        pthread_mutex_lock(&tulowFinishResurrectingMutex);
+
+        //TODO: podbić licznik wskrzeszeń
+
+        pthread_mutex_unlock(&tulowFinishResurrectingMutex);
 
         //TODO: ogłosic ze szuka sie druzyny
-
     }
 }
 
 void *workerOgona(void *ptr) {
-    allProfessionsBroadcast(READY_TO_JOIN_TEAM);
     printf("[PROCES %d - WORKERTHREAD] start \n", rank);
+
+    while (end == FALSE) {
+        //ogłoś, że jesteś gotowy dołączyć do drużyny
+        allProfessionsBroadcast(READY_TO_JOIN_TEAM);
+
+        //zacznij ubiegać się o szkielet kiedy tułów skończy papierkowa robote
+        pthread_mutex_lock(&acquireSkeletonMutex);
+
+        //TODO: REQUEST dostępu do szkieletu do pozostałych ogonów
+
+        //koniec ubiegania się o szkielet
+        pthread_mutex_unlock(&acquireSkeletonMutex);
+
+        //gdy otrzymasz dostęp do szkieleta
+        pthread_mutex_lock(&skeletonMutex);
+
+        //TODO: wysłać do głowy informację o rozpoczęciu wskrzeszania
+
+        pthread_mutex_unlock(&skeletonMutex);
+
+        //zacznij wskrzeszanie gdy otrzymasz informacje od tulowia
+        pthread_mutex_lock(&resurrectOgonMutex);
+
+        //wskrzeszanie i spanko
+
+        pthread_mutex_unlock(&resurrectOgonMutex);
+        //TODO: REPLY to pozostałych ogonów czekających na szkielet
+        //TODO: wysłać do głowy i tułowia informację o zakończeniu wskrzeszania, podbić licznik wskrzeszeń
+        //TODO: ogłosic ze szuka sie druzyny
+    }
+
 }
 
 void initThreadSystem(int threadSystem, int *processRank, int *size) {
@@ -367,24 +439,41 @@ void zleceniodawca() {
     singleProfessionBroadcast(TULOW, NEW_TASK);
 }
 
+initGlowaMutexes() {
+    pthread_mutex_init(&glowaFinishResurrectingMutex, NULL);
+    pthread_mutex_init(&resurrectGlowaMutex, NULL);
+
+    pthread_mutex_lock(&glowaFinishResurrectingMutex);
+    pthread_mutex_lock(&resurrectGlowaMutex);
+}
+
 void glowa() {
+    //inicjalizacja kolejek
     professionInit();
 
+    //inicjalizcja mutexow
+    initGlowaMutexes();
+
+    //utworz watek do komunikacji i odpal glowna funkcje
     pthread_t workerThread;
     pthread_create(&workerThread, NULL, workerGlowy, 0);
     messangerGlowy();
     pthread_join(workerThread, NULL);
 
+    //zakoncz dzialanie
     professionEnd();
 }
 
 void initTulowMutexes() {
     pthread_mutex_init(&paperWorkMutex, NULL);
-    pthread_mutex_init(&resurectTulowMutex, NULL);
+    pthread_mutex_init(&resurrectTulowMutex, NULL);
+    pthread_mutex_init(&tulowFinishResurrectingMutex, NULL);
+    pthread_mutex_init(&acquireDeskMutex, NULL);
 
-    //na początku nie możemy wykonywać roboty papierkowej ani wskrzeszać
     pthread_mutex_lock(&paperWorkMutex);
-    pthread_mutex_lock(&resurectTulowMutex);
+    pthread_mutex_lock(&resurrectTulowMutex);
+    pthread_mutex_lock(&tulowFinishResurrectingMutex);
+    pthread_mutex_lock(&acquireDeskMutex);
 }
 
 void tulow() {
@@ -392,7 +481,7 @@ void tulow() {
     professionInit();
 
     //incjalizacja mutexow
-
+    initTulowMutexes();
 
     //utworz watek do komunikacji i odpal glowna funkcje
     pthread_t workerThread;
@@ -404,14 +493,32 @@ void tulow() {
     professionEnd();
 }
 
+void initOgonMutexes() {
+    pthread_mutex_init(&skeletonMutex, NULL);
+    pthread_mutex_init(&resurrectOgonMutex, NULL);
+    pthread_mutex_init(&acquireSkeletonMutex, NULL);
+
+    // skeletonMutex, resurrectOgonMutex, ogonFinishResurrectingMutex, acquireSkeletonMutex;
+
+    pthread_mutex_lock(&acquireSkeletonMutex);
+    pthread_mutex_lock(&skeletonMutex);
+    pthread_mutex_lock(&resurrectOgonMutex);
+}
+
 void ogon() {
+    //inicjalizacja kolejek
     professionInit();
 
+    //inicjalizacja mutexów
+    initOgonMutexes();
+
+    //utworz watek do komunikacji i odpal glowna funkcje
     pthread_t workerThread;
     pthread_create(&workerThread, NULL, workerOgona, 0);
     messangerOgona();
     pthread_join(workerThread, NULL);
 
+    //zakoncz dzialanie
     professionEnd();
 }
 
