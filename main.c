@@ -59,7 +59,7 @@ int getReadyElementsFromQueue(QueueElementType **head, enum type profession){
 
 void removeFirstNodes(QueueElementType **head, int count){
     for(int i = 0; i<count; i++){
-        printf("[PROCES - %d] proces %d ma drużynę \n",rank, (*head)->pID);
+        printf("[PROCES %d] proces %d ma drużynę \n",rank, (*head)->pID);
         QueueElementType *tmp = (*head);
         (*head)=(*head)->next;
         free(tmp);
@@ -185,6 +185,9 @@ void onReadyForNewTask(enum type senderType, MPI_Status status, int data){
         default:
             break;
     }
+}
+
+void onNewTask(){
     checkForTeams();
 }
 
@@ -203,6 +206,9 @@ void messangerGlowy(){
         printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
         switch(status.MPI_TAG){
+            case NEW_TASK:
+                onNewTask();
+                break;
             case READY_FOR_NEW_TASK:
                 onReadyForNewTask(senderType,status,data);
                 break;
@@ -230,6 +236,9 @@ void messangerTulowia(){
         printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
         switch(status.MPI_TAG){
+            case NEW_TASK:
+                onNewTask();
+                break;
             case READY_FOR_NEW_TASK:
                 onReadyForNewTask(senderType,status,data);
                 break;
@@ -257,6 +266,9 @@ void messangerOgona(){
         printf("[PROCES %d - MESSANGER] dostal %d od %d\n", rank, data, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
         switch(status.MPI_TAG){
+            case NEW_TASK:
+                onNewTask();
+                break;
             case READY_FOR_NEW_TASK:
                 onReadyForNewTask(senderType,status,data);
                 break;
