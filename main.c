@@ -7,9 +7,9 @@
 #include <ctype.h>
 #include <pthread.h>
 
+#define END 0
 #define NEW_TASK 100
 #define READY_TO_JOIN_TEAM 200
-#define END 0
 #define REQUEST_DESK 300
 #define REPLY_DESK 400
 #define CAN_REQUEST_SKELETON 500
@@ -27,7 +27,7 @@ pthread_mutex_t lamportLock, lamportArrayLock;
 pthread_mutex_t paperWorkMutex, resurrectTulowMutex, tulowFinishResurrectingMutex, acquireDeskMutex;
 
 //mutexy ogona
-pthread_mutex_t skeletonMutex, resurrectOgonMutex, acquireSkeletonMutex;
+pthread_mutex_t skeletonMutex, resurrectOgonMutex, ogonFinishResurrectingMutex, acquireSkeletonMutex;
 
 //mutexy glowy
 pthread_mutex_t glowaFinishResurrectingMutex, resurrectGlowaMutex;
@@ -46,6 +46,7 @@ typedef enum {
 
 int rank, size, lamportTS = 0, *otherTS;
 bool end = FALSE;
+bool working = FALSE;
 
 //zmienne tulowia
 bool waitingForDesk = FALSE;
@@ -119,25 +120,29 @@ int getReadyElementsFromQueue(QueueElementType **head, enum type profession) {
     return canEnter;
 }
 
-void removeProcessFromQueue(QueueElementType **head, int processID) {
-    QueueElementType *current = *head;
-    while (current != NULL) {
-        if (current->next != NULL && current->next->pID == processID) {
-            QueueElementType *tmp = current->next;
-            *(current->next) = *(current->next->next);
-            free(tmp);
-            break;
-        }
-        current = current->next;
-    }
-}
-
-void removeFirstNodes(QueueElementType **head, int count) {
+void removeFirstNode(QueueElementType **head, int count) {
     for (int i = 0; i < count; i++) {
-        printf("[PROCES %d (%s) - MESSANGER] proces %d ma drużynę \n", rank, typeNames[myProfession], (*head)->pID);
+//        printf("[PROCES %d (%s) - MESSANGER] proces %d ma drużynę \n", rank, typeNames[myProfession], (*head)->pID);
         QueueElementType *tmp = (*head);
         (*head) = (*head)->next;
         free(tmp);
+    }
+}
+
+void removeProcessFromQueue(QueueElementType **head, int processID) {
+    if((*head)->pID == processID){
+        removeFirstNode(head, 1);
+    } else {
+        QueueElementType *current = *head;
+        while (current->next != NULL) {
+            if (current->next->pID == processID) {
+                QueueElementType *tmp = current->next;
+                current->next = current->next->next;
+                free(tmp);
+                break;
+            }
+            current = current->next;
+        }
     }
 }
 
@@ -173,15 +178,18 @@ void checkForTeams() {
             tulowTeamId = getProcessOnQueueHead(&tulowTeamQueue);
             printf("[PROCES %d (%s) - MESSANGER] Jestem 1 w kolejce. Moja drużyna: Tulow - %d, Ogon - %d, Glowa - %d\n", rank, typeNames[myProfession], tulowTeamId, ogonTeamId, glowaTeamId);
 
+
             //pozwol tulowiu ubiegac sie o biurko
             if(myProfession == TULOW) pthread_mutex_unlock(&acquireDeskMutex);
+        } else if (myPositionInQueue < 0){
+            if(myProfession == TULOW) printf("[PROCES %d (%s) - MESSANGER] Pracuję. Nie rozpoczynam ubiegania się o biurko\n", rank, typeNames[myProfession]);
         } else {
             if(myProfession == TULOW) printf("[PROCES %d (%s) - MESSANGER] Jestem %d w kolejce. Nie rozpoczynam ubiegania się o biurko\n", rank, typeNames[myProfession], myPositionInQueue);
         }
 
-        removeFirstNodes(&ogonTeamQueue, 1);
-        removeFirstNodes(&glowaTeamQueue, 1);
-        removeFirstNodes(&tulowTeamQueue, 1);
+        removeFirstNode(&ogonTeamQueue, 1);
+        removeFirstNode(&glowaTeamQueue, 1);
+        removeFirstNode(&tulowTeamQueue, 1);
     }
 }
 
@@ -388,7 +396,7 @@ void onRequestDesk(int senderRank, int senderLts) {
         int myPosInQueue = getPosInQueue(&deskRequesters, rank);
         int hisPosInQueue = getPosInQueue(&deskRequesters, senderRank);
 
-        if (myPosInQueue < hisPosInQueue) {
+        if (myPosInQueue < hisPosInQueue && hisPosInQueue >= 0) {
             //jesli jestesmy nizej w kolejce pozwalamy wejsc i usuwamy z kolejki
             //wpw odpowiemy jak zwolnimy dostęp
             removeProcessFromQueue(&deskRequesters, senderRank);
@@ -419,6 +427,7 @@ void messangerTulowia() {
                 break;
             case REQUEST_DESK:
                 onRequestDesk(status.MPI_SOURCE, senderLts);
+                break;
             case RESURRECTION_START:
                 onResurrectionStart(&resurrectTulowMutex);
                 break;
@@ -452,7 +461,7 @@ void onRequestSkeleton(int senderRank, int senderLts) {
         int myPosInQueue = getPosInQueue(&skeletonRequesters, rank);
         int hisPosInQueue = getPosInQueue(&skeletonRequesters, senderRank);
 
-        if (myPosInQueue < hisPosInQueue) {
+        if (myPosInQueue < hisPosInQueue && hisPosInQueue >= 0) {
             //jesli jestesmy nizej w kolejce pozwalamy wejsc i usuwamy z kolejki
             //wpw odpowiemy jak zwolnimy dostęp
             removeProcessFromQueue(&skeletonRequesters, senderRank);
@@ -563,7 +572,7 @@ void doPaperWork() {
     printf("[PROCES %d (%s) - WORKERTHREAD] Wykonuje papierkową robotę\n", rank, typeNames[myProfession]);
     sleep(3);
     waitingForDesk = FALSE;
-    sendToAllInQueueWithoutMe(&deskRequesters, rank, REPLY_DESK);
+//    sendToAllInQueueWithoutMe(&deskRequesters, rank, REPLY_DESK);
     lamportIncreaseBeforeSend();
     MPI_Send(&lamportTS, 1, MPI_INT, ogonTeamId, CAN_REQUEST_SKELETON, MPI_COMM_WORLD);
 }
@@ -597,8 +606,6 @@ void *workerTulowia(void *ptr) {
         //TODO: podbić licznik wskrzeszeń
 
         pthread_mutex_unlock(&tulowFinishResurrectingMutex);
-
-        //TODO: ogłosic ze szuka sie druzyny
     }
 }
 
@@ -635,6 +642,10 @@ void *workerOgona(void *ptr) {
         doResurrection();
         endOfResurrection();
         pthread_mutex_unlock(&resurrectOgonMutex);
+
+        pthread_mutex_lock(&ogonFinishResurrectingMutex);
+
+        pthread_mutex_unlock(&ogonFinishResurrectingMutex);
         //TODO: REPLY to pozostałych ogonów czekających na szkielet
         //TODO: wysłać do głowy i tułowia informację o zakończeniu wskrzeszania, podbić licznik wskrzeszeń
         //TODO: ogłosic ze szuka sie druzyny
@@ -677,10 +688,11 @@ void professionEnd() {
 void zleceniodawca() {
     //w losowych odstępuj generuj zlecenia i wysyłaj je do wszystkich tułowi
     sleep(5);
-//    singleProfessionBroadcast(TULOW, NEW_TASK);
+    printf("[PROCES %d (%s) - MAIN] wysłałem nowe zlecenie\n", rank, typeNames[myProfession]);
     allProfessionsBroadcast(NEW_TASK);
-//    sleep(5);
-//    singleProfessionBroadcast(TULOW, NEW_TASK);
+    sleep(5);
+    printf("[PROCES %d (%s) - MAIN] wysłałem nowe zlecenie\n", rank, typeNames[myProfession]);
+    allProfessionsBroadcast(NEW_TASK);
 }
 
 void initGlowaMutexes() {
@@ -741,12 +753,14 @@ void initOgonMutexes() {
     pthread_mutex_init(&skeletonMutex, NULL);
     pthread_mutex_init(&resurrectOgonMutex, NULL);
     pthread_mutex_init(&acquireSkeletonMutex, NULL);
+    pthread_mutex_init(&ogonFinishResurrectingMutex, NULL);
 
     // skeletonMutex, resurrectOgonMutex, ogonFinishResurrectingMutex, acquireSkeletonMutex;
 
     pthread_mutex_lock(&acquireSkeletonMutex);
     pthread_mutex_lock(&skeletonMutex);
     pthread_mutex_lock(&resurrectOgonMutex);
+    pthread_mutex_lock(&ogonFinishResurrectingMutex);
 }
 
 void ogon() {
@@ -798,8 +812,8 @@ void test() {
     int count = ile;
     if (ile2 < ile) count = ile2;
 
-    removeFirstNodes(&teamQueue, count);
-    removeFirstNodes(&teamQueue2, count);
+    removeFirstNode(&teamQueue, count);
+    removeFirstNode(&teamQueue2, count);
 
     printf("[TEST] ile: %d %d \n", ile, ile2);
 
