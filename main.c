@@ -18,7 +18,7 @@
 #define RESURRECTION_START 800
 #define RESURRECTION_END 900
 
-int LICZBA_BIUREK = 1, LICZBA_SZKIELETOW = 1;
+int LICZBA_BIUREK = 2, LICZBA_SZKIELETOW = 2;
 int liczbaGlow, liczbaTulowi, liczbaOgonow;
 
 pthread_mutex_t lamportLock, lamportArrayLock;
@@ -380,9 +380,14 @@ void onRequestDesk(int senderRank, int senderLts) {
 
 void acquireDesk() {
     printf("[PROCES %d (%s) - WORKERTHREAD] Rozpoczynam ubieganie się o biurko\n", rank, typeNames[myProfession]);
-    singleProfessionBroadcastWithoutOneProcess(TULOW, REQUEST_DESK, rank);
-    waitingForDesk = TRUE;
-    insertToQueue(&deskRequesters, rank, lamportTS);
+    if(liczbaTulowi>1){
+        singleProfessionBroadcastWithoutOneProcess(TULOW, REQUEST_DESK, rank);
+        waitingForDesk = TRUE;
+        insertToQueue(&deskRequesters, rank, lamportTS);
+    } else if(LICZBA_BIUREK>0){
+        printf("[PROCES %d (%s) - WORKERTHREAD] Jestem jedynym procesem tulowia więc zajmuję biurko\n", rank, typeNames[myProfession]);
+        pthread_mutex_unlock(&paperWorkMutex);
+    }
 }
 
 void releaseDesk(){
@@ -433,9 +438,14 @@ void onRequestSkeleton(int senderRank, int senderLts) {
 
 void acquireSkeleton() {
     printf("[PROCES %d (%s) - WORKERTHREAD] Rozpoczynam ubieganie się o szkielet\n", rank, typeNames[myProfession]);
-    singleProfessionBroadcastWithoutOneProcess(OGON, REQUEST_SKELETON, rank);
-    waitingForSkeleton = TRUE;
-    insertToQueue(&skeletonRequesters, rank, lamportTS);
+    if(liczbaOgonow>1) {
+        singleProfessionBroadcastWithoutOneProcess(OGON, REQUEST_SKELETON, rank);
+        waitingForSkeleton = TRUE;
+        insertToQueue(&skeletonRequesters, rank, lamportTS);
+    } else if(LICZBA_SZKIELETOW>0){
+        printf("[PROCES %d (%s) - WORKERTHREAD] Jestem jedynym procesem ogona więc zajmuję szkielet\n", rank, typeNames[myProfession]);
+        pthread_mutex_unlock(&skeletonMutex);
+    }
 }
 
 void onReplySkeleton() {
