@@ -18,8 +18,15 @@
 #define RESURRECTION_START 800
 #define RESURRECTION_END 900
 
-int LICZBA_BIUREK = 2, LICZBA_SZKIELETOW = 2;
+int LICZBA_BIUREK = 4, LICZBA_SZKIELETOW = 1;
 int liczbaGlow, liczbaTulowi, liczbaOgonow;
+
+char* msgs[] = {"END", "NEW_TASK", "READY_TO_JOIN_TEAM","REQUEST_DESK", "REPLY_DESK", "CAN_REQUEST_SKELETON",
+                "REQUEST_SKELETON" , "REPLY_SKELETON", "RESURRECTION_START", "RESURRECTION_END"};
+
+char* msgToText(int msg) {
+    return msgs[msg / 100];
+}
 
 pthread_mutex_t lamportLock, lamportArrayLock;
 
@@ -106,7 +113,7 @@ int getPosInQueue(QueueElementType **head, int processID) {
 }
 
 int getReadyElementsFromQueue(QueueElementType **head, enum type profession) {
-    int min = 100, canEnter = 0;
+    int min = 100000, canEnter = 0;
     for (int i = profession + 1; i < size; i += 3) {
         if (otherTS[i] < min && isInQueue(head, i) == FALSE) {
             min = otherTS[i];
@@ -180,7 +187,7 @@ void insertToQueue(QueueElementType **head, int processID, int processLamport) {
 }
 
 void showQueue(QueueElementType *head, int type) {
-    printf("[PROCES %d (%s) - QUEUE] %s: ", rank, typeNames[myProfession], typeNames[type]);
+    printf("[PROCES %d (%s) - TS %d] %s: ", rank, typeNames[myProfession], lamportTS ,typeNames[type]);
     if (head == NULL) printf("Queue is empty");
     else {
         QueueElementType *current = head;
@@ -312,15 +319,15 @@ void checkForTeams() {
             ogonTeamId = getProcessOnQueueHead(&ogonTeamQueue);
             glowaTeamId = getProcessOnQueueHead(&glowaTeamQueue);
             tulowTeamId = getProcessOnQueueHead(&tulowTeamQueue);
-            printf("[PROCES %d (%s) - MESSANGER] Jestem 1 w kolejce po zlecenie. Moja drużyna: Tulow - %d, Ogon - %d, Glowa - %d\n", rank, typeNames[myProfession], tulowTeamId, ogonTeamId, glowaTeamId);
+            printf("[PROCES %d (%s) - TS: %d] Jestem 1 w kolejce po zlecenie. Moja drużyna: Tulow - %d, Ogon - %d, Glowa - %d\n", rank, typeNames[myProfession], lamportTS ,tulowTeamId, ogonTeamId, glowaTeamId);
 
 
             //pozwol tulowiu ubiegac sie o biurko
             if(myProfession == TULOW) pthread_mutex_unlock(&acquireDeskMutex);
         } else if (myPositionInQueue < 0){
-            if(myProfession == TULOW) printf("[PROCES %d (%s) - MESSANGER] Nie jestem w kolejce po zlecenie (pracuję).\n", rank, typeNames[myProfession]);
+            if(myProfession == TULOW) printf("[PROCES %d (%s) - TS: %d] Nie jestem w kolejce po zlecenie (pracuję).\n", rank, typeNames[myProfession], lamportTS);
         } else {
-            if(myProfession == TULOW) printf("[PROCES %d (%s) - MESSANGER] Jestem %d w kolejce po zlecenie. Nie rozpoczynam pracy.\n", rank, typeNames[myProfession], myPositionInQueue);
+            if(myProfession == TULOW) printf("[PROCES %d (%s) - TS: %d] Jestem %d w kolejce po zlecenie. Nie rozpoczynam pracy.\n", rank, typeNames[myProfession], lamportTS, myPositionInQueue);
         }
 
         removeFirstNode(&ogonTeamQueue, 1);
@@ -344,12 +351,12 @@ void onReplyDesk() {
 
     //uzyskano dostep do biurka
     if (deskAccessPermissions >= liczbaTulowi - LICZBA_BIUREK) {
-        printf("[PROCES %d (%s) - MESSANGER] Uzyskałem wymagany dostęp do biurka\n", rank, typeNames[myProfession]);
+        printf("[PROCES %d (%s) - TS: %d] Uzyskałem wymagany dostęp do biurka\n", rank, typeNames[myProfession], lamportTS);
         occupyingDesk = TRUE;
         waitingForDesk = FALSE;
         pthread_mutex_unlock(&paperWorkMutex);
     } else {
-        printf("[PROCES %d (%s) - MESSANGER] Uzyskałem pozwolenie na dostep do biurka. Mam %d / %d \n", rank, typeNames[myProfession], deskAccessPermissions, liczbaTulowi - LICZBA_BIUREK);
+        printf("[PROCES %d (%s) - TS: %d] Uzyskałem pozwolenie na dostep do biurka. Mam %d / %d \n", rank, typeNames[myProfession], lamportTS, deskAccessPermissions, liczbaTulowi - LICZBA_BIUREK);
     }
 }
 
@@ -379,26 +386,26 @@ void onRequestDesk(int senderRank, int senderLts) {
 }
 
 void acquireDesk() {
-    printf("[PROCES %d (%s) - WORKERTHREAD] Rozpoczynam ubieganie się o biurko\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s)- TS: %d] Rozpoczynam ubieganie się o biurko\n", rank, typeNames[myProfession], lamportTS);
     if(liczbaTulowi>1){
         singleProfessionBroadcastWithoutOneProcess(TULOW, REQUEST_DESK, rank);
         waitingForDesk = TRUE;
         insertToQueue(&deskRequesters, rank, lamportTS);
     } else if(LICZBA_BIUREK>0){
-        printf("[PROCES %d (%s) - WORKERTHREAD] Jestem jedynym procesem tulowia więc zajmuję biurko\n", rank, typeNames[myProfession]);
+        printf("[PROCES %d (%s) - TS: %d] Jestem jedynym procesem tulowia więc zajmuję biurko\n", rank, typeNames[myProfession], lamportTS);
         pthread_mutex_unlock(&paperWorkMutex);
     }
 }
 
 void releaseDesk(){
-    printf("[PROCES %d (%s) - WORKERTHREAD] Zwalniam biurko\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] Zwalniam biurko\n", rank, typeNames[myProfession], lamportTS);
     occupyingDesk = FALSE;
     deskAccessPermissions = 0;
     sendToAllInQueueWithoutMe(&deskRequesters, rank, REPLY_DESK);
 }
 
 void doPaperWork() {
-    printf("[PROCES %d (%s) - WORKERTHREAD] Wykonuje papierkową robotę\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] Wykonuje papierkową robotę\n", rank, typeNames[myProfession], lamportTS);
     sleep(3);
     releaseDesk();
     lamportIncreaseBeforeSend();
@@ -407,7 +414,7 @@ void doPaperWork() {
 
 
 void onCanRequestSkeleton() {
-    printf("[PROCES %d (%s) - MESSANGER] Dostałem pozwolenie na ubieganie się o szkielet\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] Dostałem pozwolenie na ubieganie się o szkielet\n", rank, typeNames[myProfession], lamportTS);
     pthread_mutex_unlock(&acquireSkeletonMutex);
 }
 
@@ -437,13 +444,13 @@ void onRequestSkeleton(int senderRank, int senderLts) {
 }
 
 void acquireSkeleton() {
-    printf("[PROCES %d (%s) - WORKERTHREAD] Rozpoczynam ubieganie się o szkielet\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s)- TS: %d] Rozpoczynam ubieganie się o szkielet\n", rank, typeNames[myProfession], lamportTS);
     if(liczbaOgonow>1) {
         singleProfessionBroadcastWithoutOneProcess(OGON, REQUEST_SKELETON, rank);
         waitingForSkeleton = TRUE;
         insertToQueue(&skeletonRequesters, rank, lamportTS);
     } else if(LICZBA_SZKIELETOW>0){
-        printf("[PROCES %d (%s) - WORKERTHREAD] Jestem jedynym procesem ogona więc zajmuję szkielet\n", rank, typeNames[myProfession]);
+        printf("[PROCES %d (%s) - TS: %d] Jestem jedynym procesem ogona więc zajmuję szkielet\n", rank, typeNames[myProfession], lamportTS);
         pthread_mutex_unlock(&skeletonMutex);
     }
 }
@@ -453,17 +460,17 @@ void onReplySkeleton() {
 
     //uzyskano dostep do szkieletus
     if (skeletonAccessPermissions >= liczbaOgonow - LICZBA_SZKIELETOW) {
-        printf("[PROCES %d (%s) - MESSANGER] Uzyskałem wymagany dostęp do szkieletu\n", rank, typeNames[myProfession]);
+        printf("[PROCES %d (%s) - TS: %d] Uzyskałem wymagany dostęp do szkieletu\n", rank, typeNames[myProfession], lamportTS);
         occupyingSkeleton = TRUE;
         waitingForSkeleton = FALSE;
         pthread_mutex_unlock(&skeletonMutex);
     } else {
-        printf("[PROCES %d (%s) - MESSANGER] Uzyskałem pozwolenie na dostep do szkieletu. Mam %d / %d \n", rank, typeNames[myProfession], skeletonAccessPermissions, liczbaOgonow - LICZBA_SZKIELETOW);
+        printf("[PROCES %d (%s) - TS: %d] Uzyskałem pozwolenie na dostep do szkieletu. Mam %d / %d \n", rank, typeNames[myProfession], lamportTS, skeletonAccessPermissions, liczbaOgonow - LICZBA_SZKIELETOW);
     }
 }
 
 void releaseSkeleton(){
-    printf("[PROCES %d (%s) - WORKERTHREAD] Zwalniam szkielet\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] Zwalniam szkielet\n", rank, typeNames[myProfession], lamportTS);
     occupyingSkeleton = FALSE;
     skeletonAccessPermissions = 0;
     sendToAllInQueueWithoutMe(&skeletonRequesters, rank, REPLY_SKELETON);
@@ -471,13 +478,13 @@ void releaseSkeleton(){
 
 
 void sendResurrectionPermit(int processID){
-    printf("[PROCES %d (%s) - WORKERTHREAD] Informuję proces %d że może zacząc wskrzeszac\n", rank, typeNames[myProfession], processID);
+    printf("[PROCES %d (%s) - TS: %d] Informuję proces %d że może zacząc wskrzeszac\n", rank, typeNames[myProfession], lamportTS, processID);
     lamportIncreaseBeforeSend();
     MPI_Send(&lamportTS, 1, MPI_INT, processID, RESURRECTION_START, MPI_COMM_WORLD);
 };
 
 void onResurrectionStart(pthread_mutex_t *resurrectMutex){
-    printf("[PROCES %d (%s) - MESSANGER] Dostałem pozwolenie na wskrzeszanie\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] Dostałem pozwolenie na wskrzeszanie\n", rank, typeNames[myProfession], lamportTS);
     pthread_mutex_unlock(resurrectMutex);
 }
 
@@ -486,14 +493,14 @@ void onResurrectionEnd(pthread_mutex_t *finishResurrectingMutex){
 }
 
 void doResurrection(){
-    printf("[PROCES %d (%s) - WORKTHREAD] rozpoczynam wskrzeszanie\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] rozpoczynam wskrzeszanie\n", rank, typeNames[myProfession], lamportTS);
     sleep(3);
-    printf("[PROCES %d (%s) - WORKTHREAD] zakończyłem wskrzeszanie\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] zakończyłem wskrzeszanie\n", rank, typeNames[myProfession], lamportTS);
 }
 
 void endOfResurrection(){
     //wysyłam do glowy i tulowia informacje o zakonczeniu wskrzeszania
-    printf("[PROCES %d (%s) - WORKERTHREAD] SMOK ZOSTAŁ WSKRZESZONY\n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] SMOK ZOSTAŁ WSKRZESZONY\n", rank, typeNames[myProfession], lamportTS);
     lamportIncreaseBeforeSend();
     MPI_Send(&lamportTS, 1, MPI_INT, glowaTeamId, RESURRECTION_END, MPI_COMM_WORLD);
     lamportIncreaseBeforeSend();
@@ -507,7 +514,7 @@ void endOfResurrection(){
 
 void increaseResurrectionCounter(){
     resurrectionCounter += 1;
-    printf("[PROCES %d (%s)] moj licznik wskrzeszeń wynosi: %d\n",rank, typeNames[myProfession], resurrectionCounter);
+    printf("[PROCES %d (%s) - TS: %d] moj licznik wskrzeszeń wynosi: %d\n",rank, typeNames[myProfession], lamportTS, resurrectionCounter);
 }
 
 
@@ -547,7 +554,7 @@ void zleceniodawca() {
     while( end == FALSE){
         int randTime = rand() % 5 + 1;
         sleep(randTime);
-        printf("[PROCES %d (%s) - MAIN] wysłałem nowe zlecenie nr %d po czasie %d\n", rank, typeNames[myProfession], taskCounter, randTime);
+        printf("[PROCES %d (%s) - TS: %d] wysłałem nowe zlecenie nr %d po czasie %d\n", rank, typeNames[myProfession], lamportTS, taskCounter, randTime);
         allProfessionsBroadcast(NEW_TASK);
         taskCounter += 1;
     }
@@ -560,7 +567,7 @@ void messangerGlowy() {
         int senderLts;
         MPI_Recv(&senderLts, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         lamportIncreaseAfterRecv(senderLts, status.MPI_SOURCE);
-        printf("[PROCES %d (%s) - MESSANGER] dostal wiadomosc %d z TS: %d od %d\n", rank, typeNames[myProfession], status.MPI_TAG, senderLts, status.MPI_SOURCE);
+        printf("[PROCES %d (%s) - TS: %d] dostal wiadomosc %s z TS: %d od %d\n", rank, typeNames[myProfession], lamportTS, msgToText(status.MPI_TAG), senderLts, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
         switch (status.MPI_TAG) {
             case READY_TO_JOIN_TEAM:
@@ -589,7 +596,7 @@ void messangerGlowy() {
 }
 
 void *workerGlowy(void *ptr) {
-    printf("[PROCES %d (%s) - WORKERTHREAD] start \n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] start \n", rank, typeNames[myProfession], lamportTS);
 
     while (end == FALSE) {
         pthread_mutex_lock(&glowaFinishResurrectingMutex);
@@ -640,7 +647,7 @@ void messangerTulowia() {
         int senderLts;
         MPI_Recv(&senderLts, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         lamportIncreaseAfterRecv(senderLts, status.MPI_SOURCE);
-        printf("[PROCES %d (%s) - MESSANGER] dostal wiadomosc %d z TS: %d od %d\n", rank, typeNames[myProfession], status.MPI_TAG, senderLts, status.MPI_SOURCE);
+        printf("[PROCES %d (%s) - TS: %d] dostal wiadomosc %s z TS: %d od %d\n", rank, typeNames[myProfession], lamportTS, msgToText(status.MPI_TAG), senderLts, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
         switch (status.MPI_TAG) {
             case NEW_TASK:
@@ -675,7 +682,7 @@ void messangerTulowia() {
 }
 
 void *workerTulowia(void *ptr) {
-    printf("[PROCES %d (%s) - WORKERTHREAD] start \n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] start \n", rank, typeNames[myProfession], lamportTS);
 
     while (end == FALSE) {
         pthread_mutex_lock(&paperWorkMutex);
@@ -740,7 +747,7 @@ void messangerOgona() {
         int senderLts;
         MPI_Recv(&senderLts, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         lamportIncreaseAfterRecv(senderLts, status.MPI_SOURCE);
-        printf("[PROCES %d (%s) - MESSANGER] dostal wiadomosc %d z TS: %d od %d\n", rank, typeNames[myProfession], status.MPI_TAG, senderLts, status.MPI_SOURCE);
+        printf("[PROCES %d (%s) - TS: %d] dostal wiadomosc %s z TS: %d od %d\n", rank, typeNames[myProfession], lamportTS,msgToText(status.MPI_TAG), senderLts, status.MPI_SOURCE);
         enum type senderType = getProfession(status.MPI_SOURCE);
         switch (status.MPI_TAG) {
             case READY_TO_JOIN_TEAM:
@@ -775,7 +782,7 @@ void messangerOgona() {
 }
 
 void *workerOgona(void *ptr) {
-    printf("[PROCES %d (%s) - WORKERTHREAD] start \n", rank, typeNames[myProfession]);
+    printf("[PROCES %d (%s) - TS: %d] start \n", rank, typeNames[myProfession], lamportTS);
 
     while (end == FALSE) {
         pthread_mutex_lock(&acquireSkeletonMutex);
@@ -850,7 +857,7 @@ void setProfessionCount() {
         liczbaOgonow = size / 3 + 1;
         liczbaTulowi = size / 3;
     }
-    printf("[PROCES %d (%s) - MAIN] liczba Ogonow - %d, liczba Glow - %d, liczba Tulowi - %d\n", rank, typeNames[myProfession], liczbaOgonow, liczbaGlow, liczbaTulowi);
+    printf("[PROCES %d (%s) - TS: %d] liczba Ogonow - %d, liczba Glow - %d, liczba Tulowi - %d\n", rank, typeNames[myProfession], lamportTS, liczbaOgonow, liczbaGlow, liczbaTulowi);
 }
 
 int main(int argc, char **argv) {
@@ -886,6 +893,6 @@ int main(int argc, char **argv) {
             break;
     }
 
-    printf("[PROCES %d (%s) - MAIN] koniec Lamport: %d\n", rank, typeNames[profession],lamportTS);
+    printf("[PROCES %d (%s)- TS: %d] koniec \n", rank, typeNames[profession],lamportTS);
     MPI_Finalize();
 }
